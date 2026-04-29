@@ -328,7 +328,7 @@ local AntiStunEnabled = false -- NEW STATE VARIABLE
 local originalScale = Vector3.new(1, 1, 1)
 
 -- WEAVE GLIDE CONFIG
-local DASH_POWER = 12
+local DASH_POWER = 14
 local MODIFIER_KEY = Enum.KeyCode.Space
 
 -- REACH / HITBOX CONFIG
